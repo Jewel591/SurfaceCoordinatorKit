@@ -52,14 +52,21 @@ public final class UserDefaultsSurfaceStateStore: SurfaceStateStoring {
     /// One-time migration entry point: seed history from a legacy
     /// "last shown" date the app tracked before adopting the Kit, so existing
     /// users keep their cooldown position instead of being treated as
-    /// never-shown. Only writes when the stored date is missing or older.
+    /// never-shown.
+    ///
+    /// Surface and category history advance independently, and each only when
+    /// the stored date is missing or older — seeding several legacy surfaces
+    /// of the same category must end at the newest date regardless of the
+    /// order the host enumerates them in.
     public func seedPresentation(
         cooldownKey: String, category: SurfaceCategory, at date: Date
     ) {
-        if let existing = lastPresentation(cooldownKey: cooldownKey), existing >= date {
-            return
+        if lastPresentation(cooldownKey: cooldownKey).map({ $0 < date }) ?? true {
+            userDefaults.set(date, forKey: surfaceKey(cooldownKey))
         }
-        recordPresentation(cooldownKey: cooldownKey, category: category, at: date)
+        if lastPresentation(category: category).map({ $0 < date }) ?? true {
+            userDefaults.set(date, forKey: categoryKey(category))
+        }
     }
 
     public func reset() {

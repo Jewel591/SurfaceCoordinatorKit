@@ -153,7 +153,8 @@ struct CooldownTests {
             return
         }
 
-        clock.advance(48 * 3600)
+        // exact boundary: elapsed == interval is allowed
+        clock.advance(48 * 3600 - 3600)
         #expect(coordinator.arbitrate([otherPromotion]).winner == otherPromotion)
     }
 
@@ -202,7 +203,8 @@ struct SuccessionTests {
         }
         #expect(previous == .promotion)
 
-        clock.advance(6 * 3600)
+        // exact boundary: elapsed == window is allowed
+        clock.advance(6 * 3600 - 600)
         #expect(coordinator.arbitrate([reviewPrompt]).winner == reviewPrompt)
     }
 
@@ -291,7 +293,10 @@ struct SignalSuppressionTests {
         coordinator.registerSignal("critical-flow", expiresAfter: 300)
 
         #expect(coordinator.arbitrate([launchPaywall]).winner == nil)
-        clock.advance(301)
+        clock.advance(299)
+        #expect(coordinator.arbitrate([launchPaywall]).winner == nil)
+        // exact boundary: a signal is expired the moment now == expiry
+        clock.advance(1)
         #expect(coordinator.arbitrate([launchPaywall]).winner == launchPaywall)
     }
 }
@@ -357,8 +362,49 @@ struct UserDefaultsStoreTests {
         store.recordPresentation(cooldownKey: "key", category: .promotion, at: newer)
         store.seedPresentation(cooldownKey: "key", category: .promotion, at: older)
         #expect(store.lastPresentation(cooldownKey: "key") == newer)
+        #expect(store.lastPresentation(category: .promotion) == newer)
 
         store.seedPresentation(cooldownKey: "fresh", category: .announcement, at: older)
         #expect(store.lastPresentation(cooldownKey: "fresh") == older)
+        #expect(store.lastPresentation(category: .announcement) == older)
+    }
+
+    @Test(arguments: [true, false])
+    func seedingSameCategoryEndsAtNewestDateRegardlessOfOrder(newestFirst: Bool) {
+        let store = UserDefaultsSurfaceStateStore(userDefaults: makeDefaults())
+        let newer = Date(timeIntervalSince1970: 2_000_000)
+        let older = Date(timeIntervalSince1970: 1_000_000)
+        let seeds = [("surface-a", newer), ("surface-b", older)]
+        for (key, date) in (newestFirst ? seeds : seeds.reversed()) {
+            store.seedPresentation(cooldownKey: key, category: .promotion, at: date)
+        }
+        #expect(store.lastPresentation(cooldownKey: "surface-a") == newer)
+        #expect(store.lastPresentation(cooldownKey: "surface-b") == older)
+        #expect(store.lastPresentation(category: .promotion) == newer)
+    }
+
+    @Test func seedingAdvancesCategoryEvenWhenSurfaceIsAlreadyNewer() {
+        let store = UserDefaultsSurfaceStateStore(userDefaults: makeDefaults())
+        let newer = Date(timeIntervalSince1970: 2_000_000)
+        let older = Date(timeIntervalSince1970: 1_000_000)
+        // Explicitly construct "surface newer, category older" — the state a
+        // pre-fix seeding order could leave behind: the surface already holds
+        // the newer date, then another surface of the same category rewinds
+        // the category record to an older date.
+        store.recordPresentation(cooldownKey: "key", category: .promotion, at: newer)
+        store.recordPresentation(cooldownKey: "other", category: .promotion, at: older)
+        #expect(store.lastPresentation(cooldownKey: "key") == newer)
+        #expect(store.lastPresentation(category: .promotion) == older)
+
+        // Re-seeding must advance the category independently even though the
+        // surface itself has nothing to update.
+        store.seedPresentation(cooldownKey: "key", category: .promotion, at: newer)
+        #expect(store.lastPresentation(cooldownKey: "key") == newer)
+        #expect(store.lastPresentation(category: .promotion) == newer)
+
+        // And seeding an older date rewinds neither dimension.
+        store.seedPresentation(cooldownKey: "key", category: .promotion, at: older)
+        #expect(store.lastPresentation(cooldownKey: "key") == newer)
+        #expect(store.lastPresentation(category: .promotion) == newer)
     }
 }
