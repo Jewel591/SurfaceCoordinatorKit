@@ -82,6 +82,17 @@ public final class SurfaceCoordinator {
         signals.removeValue(forKey: key)
     }
 
+    /// Clears every registered context signal.
+    ///
+    /// Use when the host tears down its UI tree in-process (UIKit root
+    /// replacement, sign-out that swaps the window root) so a dying
+    /// view's `viewDidDisappear` cannot be relied on to clear keys.
+    /// Does not reset the session interruption budget — call
+    /// `beginSession()` for that.
+    public func clearAllSignals() {
+        signals.removeAll()
+    }
+
     /// Whether a signal is currently active (registered and not expired).
     public func isSignalActive(_ key: String) -> Bool {
         guard let expiry = signals[key] else { return false }

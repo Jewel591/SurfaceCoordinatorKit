@@ -97,7 +97,9 @@ Key behaviors:
   logs, always.
 - Context signals are opaque keys with optional expiry
   (`registerSignal("critical-flow", expiresAfter: 300)`); the Kit never needs
-  to know what a key means.
+  to know what a key means. `clearAllSignals()` drops every key at once —
+  required when a UIKit host replaces the window root in-process, because
+  dying views cannot be trusted to clear themselves.
 - `UserDefaultsSurfaceStateStore.seedPresentation(...)` migrates a legacy
   "last shown" date once, so existing users keep their cooldown position.
 

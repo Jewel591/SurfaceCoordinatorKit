@@ -299,6 +299,20 @@ struct SignalSuppressionTests {
         clock.advance(1)
         #expect(coordinator.arbitrate([launchPaywall]).winner == launchPaywall)
     }
+
+    @Test func clearAllSignalsDropsEveryKeyIncludingUnexpired() {
+        let clock = Clock()
+        let (coordinator, _) = makeCoordinator(policies: policies, clock: clock)
+        coordinator.registerSignal("critical-flow")
+        coordinator.registerSignal("purchase-failed", expiresAfter: 300)
+
+        coordinator.clearAllSignals()
+
+        #expect(!coordinator.isSignalActive("critical-flow"))
+        #expect(!coordinator.isSignalActive("purchase-failed"))
+        #expect(coordinator.arbitrate([launchPaywall]).winner == launchPaywall)
+        #expect(coordinator.arbitrate([reviewPrompt]).winner == reviewPrompt)
+    }
 }
 
 @MainActor

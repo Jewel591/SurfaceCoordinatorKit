@@ -21,6 +21,10 @@ promotions, announcements, review prompts) across Apple-platform apps.
   is precedence.
 - Signals are opaque keys. Do not add semantic knowledge of specific signals
   (e.g. "purchase failed") to the Kit; that meaning lives in host policy.
+- `clearAllSignals()` is the bulk clear for in-process UI teardown (UIKit
+  root replacement). It must not reset the session budget; that stays
+  `beginSession()`. Do not add occupancy/refcount to signals — overlapping
+  sheets count in the host.
 
 ## Engineering
 

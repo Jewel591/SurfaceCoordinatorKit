@@ -73,12 +73,14 @@ equivalent instructions.
    sheet appears/disappears, system permission prompt around, critical flow
    entry/exit, domain events like a failed purchase (use `expiresAfter` for
    time-boxed ones so a missed clear cannot suppress forever).
-8. Delete the replaced gate flags and ordering hacks in the same change. Two
+8. Assemble launch candidates so a remote eligibility check cannot stall a
+   locally ready higher-priority surface. See **Host assembly pitfalls**.
+9. Delete the replaced gate flags and ordering hacks in the same change. Two
    parallel arbitration mechanisms are worse than either alone.
-9. Build and run the smallest relevant tests. Test host policy through an
-   injected `InMemorySurfaceStateStore` and a fixed `now` closure; never test
-   against `.standard` UserDefaults or real time.
-10. Verify against the lint: `surface-coordinator-kit-lint` (product-playbook)
+10. Build and run the smallest relevant tests. Test host policy through an
+    injected `InMemorySurfaceStateStore` and a fixed `now` closure; never test
+    against `.standard` UserDefaults or real time.
+11. Verify against the lint: `surface-coordinator-kit-lint` (product-playbook)
     requires the SPM dependency with a compatible version range, a production
     `import SurfaceCoordinatorKit`, a module-qualified
     `SurfaceCoordinatorKit.SurfaceCoordinator(...)` construction, and an
@@ -98,6 +100,39 @@ equivalent instructions.
   stamps cooldowns and budget.
 - Storage keys under the `SurfaceCoordinatorKit.` prefix belong to the Kit;
   host code never writes them outside the one-time seeding call.
+
+## Host assembly pitfalls
+
+These are host mistakes. The Kit cannot prevent them; every integration that
+skipped them paid a Codex medium.
+
+- **Do not await a remote eligibility check when a local higher-priority
+  candidate is already known.** App Store lookup and RevenueCat promotion
+  queries take seconds. If What's New (or any other local candidate) is
+  already ready, arbitrate now. Kick the remote check off in the background
+  and re-run the round after dismiss. Awaiting the lookup to "keep update
+  first" loses the whole round when the user taps into a detail during the
+  wait — and a process-once lookup cannot retry. `hasCompletedCheckThisLaunch`
+  only blocks *lower-priority* surfaces from sneaking in while lookup is
+  still in flight; it is not a license to stall every launch surface.
+- **Signals are process-global; windows are not.** Each scene contributes a
+  snapshot; OR-aggregate before `registerSignal` / `clearSignal`. An idle
+  window must not clear another window's settings signal. `beginSession()`
+  starts a new interruption budget — do not call it when any scene still
+  shows an app-initiated surface, and do not copy a process-global
+  "review pending" flag into per-scene occupancy.
+- **Root replacement must `clearAllSignals()`.** UIKit `swapRoot` / sign-out
+  that replaces the window root leaves `settingsVisible` (and friends)
+  stuck for the rest of the process. Dying views often have `view.window ==
+  nil`, so `viewDidDisappear` cannot be the only clear. SwiftUI hosts that
+  never replace the root can skip this; UIKit hosts cannot.
+- **Overlapping user sheets need a host-side count.** Kit signals are
+  boolean. `enter` increments, the last `exit` calls `clearSignal`. A
+  bool set/clear on each sheet will drop the signal while another sheet
+  is still up.
+- **Async rounds need a generation token.** If `arbitrate` waits on lookup,
+  a newer round may have already decided. Apply the await result only when
+  the token still matches and no winner is on screen.
 
 ## Review the result
 
