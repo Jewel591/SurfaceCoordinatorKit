@@ -121,11 +121,14 @@ skipped them paid a Codex medium.
   starts a new interruption budget — do not call it when any scene still
   shows an app-initiated surface, and do not copy a process-global
   "review pending" flag into per-scene occupancy.
-- **Root replacement must `clearAllSignals()`.** UIKit `swapRoot` / sign-out
-  that replaces the window root leaves `settingsVisible` (and friends)
-  stuck for the rest of the process. Dying views often have `view.window ==
-  nil`, so `viewDidDisappear` cannot be the only clear. SwiftUI hosts that
-  never replace the root can skip this; UIKit hosts cannot.
+- **`clearAllSignals()` is process-wide teardown, not a single-scene
+  swapRoot.** Signals are process-global. Call it for sign-out, the last
+  window going away, or replacing every scene's root — dying views often
+  have `view.window == nil`, so `viewDidDisappear` cannot be the only
+  clear. A single-scene UIKit root swap must not wipe other windows'
+  suppression: update that scene's snapshot and re-OR-aggregate, or clear
+  then immediately re-register the remaining scenes. SwiftUI hosts that
+  never replace the root can skip this.
 - **Overlapping user sheets need a host-side count.** Kit signals are
   boolean. `enter` increments, the last `exit` calls `clearSignal`. A
   bool set/clear on each sheet will drop the signal while another sheet

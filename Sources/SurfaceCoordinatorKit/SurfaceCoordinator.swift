@@ -84,9 +84,13 @@ public final class SurfaceCoordinator {
 
     /// Clears every registered context signal.
     ///
-    /// Use when the host tears down its UI tree in-process (UIKit root
-    /// replacement, sign-out that swaps the window root) so a dying
-    /// view's `viewDidDisappear` cannot be relied on to clear keys.
+    /// Use for process-wide UI teardown (sign-out, last window gone,
+    /// replacing every scene's root) so a dying view's `viewDidDisappear`
+    /// cannot be relied on to clear keys.
+    ///
+    /// Signals are process-global. Do not call this for a single-scene
+    /// root swap unless the host immediately re-registers the OR-aggregate
+    /// of the remaining scenes.
     /// Does not reset the session interruption budget — call
     /// `beginSession()` for that.
     public func clearAllSignals() {
