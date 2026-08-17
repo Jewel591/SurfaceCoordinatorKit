@@ -89,8 +89,9 @@ public final class SurfaceCoordinator {
     /// cannot be relied on to clear keys.
     ///
     /// Signals are process-global. Do not call this for a single-scene
-    /// root swap unless the host immediately re-registers the OR-aggregate
-    /// of the remaining scenes.
+    /// root swap — update that scene's snapshot and re-OR-aggregate
+    /// instead. There is no public way to restore expiries after a bulk
+    /// clear.
     /// Does not reset the session interruption budget — call
     /// `beginSession()` for that.
     public func clearAllSignals() {

@@ -125,10 +125,11 @@ skipped them paid a Codex medium.
   swapRoot.** Signals are process-global. Call it for sign-out, the last
   window going away, or replacing every scene's root — dying views often
   have `view.window == nil`, so `viewDidDisappear` cannot be the only
-  clear. A single-scene UIKit root swap must not wipe other windows'
-  suppression: update that scene's snapshot and re-OR-aggregate, or clear
-  then immediately re-register the remaining scenes. SwiftUI hosts that
-  never replace the root can skip this.
+  clear. A single-scene UIKit root swap must not call `clearAllSignals()`:
+  update that scene's snapshot and re-OR-aggregate. There is no public API
+  to read expiries back, so a bulk clear cannot reconstruct purchase-failed
+  or other domain signals. SwiftUI hosts that never replace the root can
+  skip this.
 - **Overlapping user sheets need a host-side count.** Kit signals are
   boolean. `enter` increments, the last `exit` calls `clearSignal`. A
   bool set/clear on each sheet will drop the signal while another sheet

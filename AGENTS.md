@@ -23,9 +23,10 @@ promotions, announcements, review prompts) across Apple-platform apps.
   (e.g. "purchase failed") to the Kit; that meaning lives in host policy.
 - `clearAllSignals()` is the bulk clear for **process-wide** UI teardown
   (sign-out, last window gone, replacing every scene's root). Signals are
-  process-global: a single-scene root swap must not call it unless the host
-  immediately re-registers the OR-aggregate of remaining scenes. It must
-  not reset the session budget; that stays `beginSession()`. Do not add
+  process-global: a single-scene root swap must not call it. Update that
+  scene's snapshot and re-OR-aggregate remaining scenes instead — there is
+  no public API to restore expiries after a bulk clear. It must not reset
+  the session budget; that stays `beginSession()`. Do not add
   occupancy/refcount to signals — overlapping sheets count in the host.
 
 ## Engineering

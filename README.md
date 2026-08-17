@@ -99,8 +99,9 @@ Key behaviors:
   (`registerSignal("critical-flow", expiresAfter: 300)`); the Kit never needs
   to know what a key means. `clearAllSignals()` drops every key at once —
   use it for process-wide UI teardown (sign-out, last window gone). A
-  single-scene root swap must re-register the remaining scenes' OR-aggregate
-  afterwards, because dying views cannot be trusted to clear themselves.
+  single-scene root swap must not call it; update that scene's snapshot
+  and re-OR-aggregate instead. Dying views cannot be trusted to clear
+  themselves, and a bulk clear cannot restore domain-signal expiries.
 - `UserDefaultsSurfaceStateStore.seedPresentation(...)` migrates a legacy
   "last shown" date once, so existing users keep their cooldown position.
 
