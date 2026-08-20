@@ -95,6 +95,21 @@ struct SessionBudgetTests {
         #expect(coordinator.arbitrate([reviewPrompt]).winner == reviewPrompt)
     }
 
+    @Test func clearingSignalsDoesNotResetSessionBudget() {
+        let clock = Clock()
+        let (coordinator, _) = makeCoordinator(policies: .init(), clock: clock)
+        coordinator.beginSession()
+        coordinator.registerSignal("critical-flow")
+        coordinator.recordOutcome(.presented, for: launchPaywall)
+
+        coordinator.clearAllSignals()
+
+        #expect(!coordinator.isSignalActive("critical-flow"))
+        let result = coordinator.arbitrate([reviewPrompt])
+        #expect(result.winner == nil)
+        #expect(result.verdicts.first?.resolution == .rejected(.sessionBudgetExhausted))
+    }
+
     @Test func configurableBudgetAllowsMultipleInterruptions() {
         let clock = Clock()
         let (coordinator, _) = makeCoordinator(
