@@ -149,3 +149,10 @@ keeps their cooldown position (state seeded, not reset); and log or spot-check
 explicitly which legacy gates were deleted, which legacy last-shown keys were
 seeded, and which surfaces were intentionally left outside the coordinator
 (and why they are user-initiated).
+
+## Host test boundary
+
+- Test the host's candidate/policy table, signal mapping, user-sheet occupancy count, generation-token chokepoint, and every real legacy cooldown key seeded during migration.
+- Arbitration ordering, cooldown/budget arithmetic, stale-round handling primitives, store mechanics, and candidate eligibility rules supplied by SurfaceCoordinatorKit belong to package tests; do not reproduce the engine matrix in every app.
+- Cross-Kit orchestration tests should assert only the host decision — for example, which candidate wins for a set of app facts — without replaying ReviewKit/AppUpdateKit/WhatsNewKit internals.
+- Do not inspect `project.pbxproj`, imports, constructor strings or deleted flags in XCTest; structural assembly belongs to the playbook lint. Use an in-memory store, fixed clock and public APIs. If two apps copy the same policy helper, evaluate whether that policy is truly portfolio-wide and should become a Kit semantic instead.
