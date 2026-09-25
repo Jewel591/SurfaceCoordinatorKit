@@ -23,6 +23,10 @@ let package = Package(
             name: "SurfaceCoordinatorKitTests",
             dependencies: ["SurfaceCoordinatorKit"]
         ),
+        .testTarget(
+            name: "SurfaceCoordinatorKitUITests",
+            dependencies: ["SurfaceCoordinatorKitUI"]
+        ),
     ],
     swiftLanguageModes: [.v6]
 )

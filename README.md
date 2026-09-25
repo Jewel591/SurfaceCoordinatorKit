@@ -198,4 +198,5 @@ not-landed details describing what the window was presenting at the time.
 - iOS 17, macOS 14, visionOS 1. watchOS does not link the adapter.
 - Zero third-party dependencies. The core imports no UI framework.
 - Rule, runtime and adapter-contract behavior is covered by package tests in
-  `Tests/SurfaceCoordinatorKitTests`.
+  `Tests/SurfaceCoordinatorKitTests`; the host's lifecycle decisions by
+  `Tests/SurfaceCoordinatorKitUITests`.

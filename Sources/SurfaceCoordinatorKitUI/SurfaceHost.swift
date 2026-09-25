@@ -30,6 +30,21 @@ extension View {
     }
 }
 
+/// What a host does with its permit when its own root view disappears.
+///
+/// A full-screen cover over the host, including the host's own, also makes
+/// the root disappear while the scene stays active. That is not a dismissal,
+/// so the host can never end a presentation: only the content reports it.
+/// A scene that left the foreground gives back a permit that never landed.
+enum HostDisappearance: Equatable {
+    case keep
+    case abandon
+
+    static func action(isSceneActive: Bool, isLanded: Bool) -> HostDisappearance {
+        !isSceneActive && !isLanded ? .abandon : .keep
+    }
+}
+
 private struct SurfaceItem: Identifiable {
     let permit: SurfacePermit
     var id: UInt64 { permit.generation }
@@ -89,13 +104,15 @@ private struct SurfaceHostModifier<SurfaceContent: View>: ViewModifier {
                 await watchLanding()
             }
             .onDisappear {
-                // A cover over the host, including the host's own, also ends
-                // up here while the scene stays active; dismissal is reported
-                // by the content itself. Only a window that left the
-                // foreground gives back a permit that never landed.
-                guard let permit = ownPermit, !isSceneActive, !coordinator.isLanded(permit)
-                else { return }
-                coordinator.abandon(permit)
+                guard let permit = ownPermit else { return }
+                switch HostDisappearance.action(
+                    isSceneActive: isSceneActive, isLanded: coordinator.isLanded(permit))
+                {
+                case .keep:
+                    break
+                case .abandon:
+                    coordinator.abandon(permit)
+                }
             }
     }
 
