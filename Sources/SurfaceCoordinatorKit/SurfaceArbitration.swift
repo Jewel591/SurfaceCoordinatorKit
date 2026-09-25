@@ -21,7 +21,7 @@ public enum SurfaceRejectionReason: Sendable, Equatable, CustomStringConvertible
     case successionBlocked(previous: SurfaceCategory, remaining: TimeInterval)
 
     /// The candidate was eligible but another candidate won the round.
-    case lostToHigherPriority(winnerID: String)
+    case lostToHigherPriority(winnerID: SurfaceProducerID)
 
     public var description: String {
         switch self {
@@ -48,19 +48,19 @@ public struct SurfaceVerdict: Sendable, Equatable {
         case rejected(SurfaceRejectionReason)
     }
 
-    public let request: SurfaceRequest
+    public let producer: SurfaceProducer
     public let resolution: Resolution
 }
 
 /// The full result of one arbitration round: at most one winner, plus a
-/// verdict with reason for every candidate. Log `summary` whenever the answer
-/// to "why did/didn't it show" might be asked later — that is, always.
+/// verdict with reason for every candidate. `summary` is one log-friendly
+/// line answering "why did/didn't it show".
 public struct SurfaceArbitration: Sendable, Equatable {
-    /// The single request the host renderer should present now, if any.
-    public let winner: SurfaceRequest?
+    /// The single producer that may present now, if any.
+    public let winner: SurfaceProducer?
 
-    /// One verdict per candidate, in evaluation order (tier-descending,
-    /// then the order the host listed them in).
+    /// One verdict per candidate, in evaluation order (tier, then purpose,
+    /// then producer id).
     public let verdicts: [SurfaceVerdict]
 
     /// One log-friendly line describing the whole round.
@@ -68,11 +68,11 @@ public struct SurfaceArbitration: Sendable, Equatable {
         let parts = verdicts.map { verdict in
             switch verdict.resolution {
             case .selected:
-                "\(verdict.request.id)=selected"
+                "\(verdict.producer.id)=selected"
             case .rejected(let reason):
-                "\(verdict.request.id)=rejected(\(reason))"
+                "\(verdict.producer.id)=rejected(\(reason))"
             }
         }
-        return "winner=\(winner?.id ?? "none") [\(parts.joined(separator: "; "))]"
+        return "winner=\(winner?.id.rawValue ?? "none") [\(parts.joined(separator: "; "))]"
     }
 }

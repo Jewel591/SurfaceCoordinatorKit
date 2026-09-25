@@ -1,47 +1,51 @@
 # SurfaceCoordinatorKit
 
-Public Swift package that arbitrates app-initiated surfaces (updates, paywalls,
-promotions, announcements, review prompts) across Apple-platform apps.
+Public Swift package that decides which app-initiated surface (updates,
+paywalls, announcements, What's New, review requests) may reach the screen,
+across Apple-platform apps.
 
 ## Product boundary
 
-- The package owns the arbitration primitives — tier ordering, per-surface and
-  per-category cooldowns, session interruption budget, succession bans,
-  signal-driven suppression — plus verdict reasons, outcome recording, and
-  cooldown persistence.
-- Host apps own the rule parameters (`SurfacePolicySet`), all rendering, and
-  presentation serialization (an app's sheet queue is a renderer concern and
-  stays in the app).
-- **Scope norm**: only app-initiated surfaces are arbitrated. User-initiated
-  presentations (button tap, deep link) must never be routed through the
-  coordinator — present them directly and, where relevant, report them as
-  context signals. A page reused by both identities splits its entry points.
-- Tiers are a fixed semantic vocabulary (`blocking` / `interruptive` /
-  `passive`); do not add numeric priorities. Within a tier, host listing order
-  is precedence.
-- Signals are opaque keys. Do not add semantic knowledge of specific signals
-  (e.g. "purchase failed") to the Kit; that meaning lives in host policy.
-- `clearAllSignals()` is the bulk clear for **process-wide** UI teardown
-  (sign-out, last window gone, replacing every scene's root). Signals are
-  process-global: a single-scene root swap must not call it. Update that
-  scene's snapshot and re-OR-aggregate remaining scenes instead — there is
-  no public API to restore expiries after a bulk clear. It must not reset
-  the session budget; that stays `beginSession()`. Do not add
-  occupancy/refcount to signals — overlapping sheets count in the host.
+- `SurfaceCoordinatorKit` is the canonical process runtime
+  (`SurfaceCoordinator.shared`): producer registry, pending candidates, one
+  presentation permit with generations, counted occupancy, rule evaluation
+  (tier / purpose / id order, cooldowns, session budget, succession bans,
+  signal suppression), outcome recording and cooldown persistence. It stays
+  pure Foundation.
+- `SurfaceCoordinatorKitUI` is the SwiftUI presentation adapter: one host per
+  window, scene gating, sheet / cover ownership, landing confirmation,
+  dismissal reporting. The scene gate lives here, never in the core. macOS
+  maps covers to sheets.
+- Host apps own content views, the policy parameters (`SurfacePolicySet`),
+  and blocking facts the Kit cannot derive, reported as occupancy.
+- **Scope norm**: only app-initiated surfaces become producers. User-initiated
+  presentations stay in the host and report occupancy. Persistent passive UI
+  never registers; `SurfaceProducer` refuses `.passive`.
+- Ordering is tier, then `SurfacePurpose`, then producer id. Do not add
+  numeric priorities, and never let registration, submission or host array
+  order influence the winner.
+- Signals are opaque keys; their meaning lives in host policy.
+  `clearAllSignals()` is for process-wide teardown and does not reset the
+  session. Overlapping owners use occupancy, not signals.
+- Unobservable system UI (StoreKit review) goes through
+  `performUnobservable`, never the adapter, and is recorded as `.attempted`:
+  no cooldown, no budget, no further interruptive producer this session.
 
 ## Engineering
 
-- Swift 6 strict concurrency. Public API supports iOS 17, macOS 14, visionOS 1.
-- Zero dependencies by invariant: no UI framework, no RevenueCat/StoreKit, no
-  host sheet coordinator, no AppContextKit. Cooldown persistence is the Kit's
-  own (`SurfaceCoordinatorKit.` UserDefaults prefix), not AppContextKit's
-  `Throttle` — sharing state stores across Kits couples their release cycles.
-- `arbitrate` must stay side-effect free; only `recordOutcome(.presented, ...)`
-  mutates state. Every rejection carries a machine-readable reason; never
-  return a bare "no".
-- Every rule change requires focused unit tests including exact time
-  boundaries. Tests inject `InMemorySurfaceStateStore` and a fixed `now`
-  closure; never test against `.standard` UserDefaults or real time.
+- Swift 6 strict concurrency. iOS 17, macOS 14, visionOS 1.
+- Zero third-party dependencies by invariant: no RevenueCat / StoreKit, no
+  host sheet coordinator, no AppContextKit. Cooldown persistence uses the
+  Kit's own `SurfaceCoordinatorKit.` UserDefaults prefix.
+- Only a confirmed landing (`confirmPresented`) stamps cooldowns and budget.
+  Every permit callback checks the generation, so a stale attempt never acts
+  on a later one. Every rejection carries a machine-readable reason.
+- The adapter contract (`requestPermit`, `confirmPresented`,
+  `reportNotLanded`, `completeDismissal`, `abandon`) is `package` access;
+  hosts cannot call it.
+- Every rule or runtime change requires focused package tests, including
+  exact time boundaries. Tests inject `InMemorySurfaceStateStore` and a fixed
+  `now` closure; never test against `.standard` UserDefaults or real time.
 - ⚠️ Known pitfall, do not regress: `signals` is `[String: Date?]`; writing a
   nil expiry must go through `updateValue`, because subscript assignment with
   a nil `Date?` removes the key instead of storing "no expiry".
@@ -51,7 +55,7 @@ promotions, announcements, review prompts) across Apple-platform apps.
 - Agent skill `.agents/skills/integrate-surfacecoordinatorkit/SKILL.md` —
   update whenever public API or the scope norm changes.
 - Adoption lint `surface-coordinator-kit-lint` in product-playbook `scripts/`
-  scans for `import SurfaceCoordinatorKit`,
-  `SurfaceCoordinatorKit.SurfaceCoordinator(...)` construction, and
-  `.arbitrate(...)` use in production app-target code. Renaming those symbols
+  checks production app-target code for `import SurfaceCoordinatorKitUI`, a
+  `.surfaceHost` call and a `SurfaceProducer(...)` registration, and rejects
+  constructing a second `SurfaceCoordinator(...)`. Renaming those symbols
   requires a same-day playbook PR bumping the lint.

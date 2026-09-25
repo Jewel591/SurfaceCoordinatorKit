@@ -17,45 +17,51 @@ private final class Clock {
 }
 
 @MainActor
-private func makeCoordinator(
+private func makeArbiter(
     policies: SurfacePolicySet, clock: Clock
-) -> (SurfaceCoordinator, InMemorySurfaceStateStore) {
+) -> (SurfaceArbiter, InMemorySurfaceStateStore) {
     let store = InMemorySurfaceStateStore()
-    let coordinator = SurfaceCoordinator(
+    let arbiter = SurfaceArbiter(
         policies: policies, store: store, now: { clock.current })
-    return (coordinator, store)
+    return (arbiter, store)
 }
 
-private let forcedUpdate = SurfaceRequest(
-    id: "app.forced-update", category: .update, tier: .blocking)
-private let launchPaywall = SurfaceRequest(
-    id: "app.launch-paywall", category: .promotion, tier: .interruptive)
-private let reviewPrompt = SurfaceRequest(
-    id: "app.review-prompt", category: .review, tier: .interruptive)
-private let promoBanner = SurfaceRequest(
-    id: "app.promo-banner", category: .promotion, tier: .passive)
+private let forcedUpdate = SurfaceProducer(
+    id: "app.forced-update", category: .update, tier: .blocking, purpose: .update)
+private let launchPaywall = SurfaceProducer(
+    id: "app.launch-paywall", category: .promotion, purpose: .monetization)
+private let reviewPrompt = SurfaceProducer(
+    id: "app.review-prompt", category: .review, purpose: .engagement)
 
 @MainActor
 struct TierOrderingTests {
     @Test func blockingOutranksInterruptiveRegardlessOfListingOrder() {
-        let (coordinator, _) = makeCoordinator(policies: .init(), clock: Clock())
-        let result = coordinator.arbitrate([launchPaywall, forcedUpdate])
+        let (arbiter, _) = makeArbiter(policies: .init(), clock: Clock())
+        let result = arbiter.arbitrate([launchPaywall, forcedUpdate])
         #expect(result.winner == forcedUpdate)
-        #expect(result.verdicts.first?.request == forcedUpdate)
+        #expect(result.verdicts.first?.producer == forcedUpdate)
         #expect(
             result.verdicts.last?.resolution
                 == .rejected(.lostToHigherPriority(winnerID: forcedUpdate.id)))
     }
 
-    @Test func withinTierListingOrderIsPrecedence() {
-        let (coordinator, _) = makeCoordinator(policies: .init(), clock: Clock())
-        let result = coordinator.arbitrate([reviewPrompt, launchPaywall])
-        #expect(result.winner == reviewPrompt)
+    @Test func withinTierPurposeDecidesRegardlessOfListingOrder() {
+        let (arbiter, _) = makeArbiter(policies: .init(), clock: Clock())
+        #expect(arbiter.arbitrate([reviewPrompt, launchPaywall]).winner == launchPaywall)
+        #expect(arbiter.arbitrate([launchPaywall, reviewPrompt]).winner == launchPaywall)
+    }
+
+    @Test func samePurposeOrdersByProducerID() {
+        let (arbiter, _) = makeArbiter(policies: .init(), clock: Clock())
+        let alpha = SurfaceProducer(id: "a.guide", category: .announcement, purpose: .announcement)
+        let beta = SurfaceProducer(id: "b.guide", category: .announcement, purpose: .announcement)
+        #expect(arbiter.arbitrate([beta, alpha]).winner == alpha)
+        #expect(arbiter.arbitrate([alpha, beta]).winner == alpha)
     }
 
     @Test func emptyCandidatesYieldNoWinner() {
-        let (coordinator, _) = makeCoordinator(policies: .init(), clock: Clock())
-        #expect(coordinator.arbitrate([]).winner == nil)
+        let (arbiter, _) = makeArbiter(policies: .init(), clock: Clock())
+        #expect(arbiter.arbitrate([]).winner == nil)
     }
 }
 
@@ -63,62 +69,61 @@ struct TierOrderingTests {
 struct SessionBudgetTests {
     @Test func secondInterruptiveInSessionIsRejected() {
         let clock = Clock()
-        let (coordinator, _) = makeCoordinator(policies: .init(), clock: clock)
-        coordinator.beginSession()
+        let (arbiter, _) = makeArbiter(policies: .init(), clock: clock)
+        arbiter.beginSession()
 
-        #expect(coordinator.arbitrate([launchPaywall]).winner == launchPaywall)
-        coordinator.recordOutcome(.presented, for: launchPaywall)
+        #expect(arbiter.arbitrate([launchPaywall]).winner == launchPaywall)
+        arbiter.recordPresented(launchPaywall)
 
-        let second = coordinator.arbitrate([reviewPrompt])
+        let second = arbiter.arbitrate([reviewPrompt])
         #expect(second.winner == nil)
         #expect(second.verdicts.first?.resolution == .rejected(.sessionBudgetExhausted))
     }
 
-    @Test func passiveAndBlockingAreExemptFromBudget() {
+    @Test func blockingIsExemptFromBudget() {
         let clock = Clock()
-        let (coordinator, _) = makeCoordinator(policies: .init(), clock: clock)
-        coordinator.beginSession()
-        coordinator.recordOutcome(.presented, for: launchPaywall)
+        let (arbiter, _) = makeArbiter(policies: .init(), clock: clock)
+        arbiter.beginSession()
+        arbiter.recordPresented(launchPaywall)
 
-        #expect(coordinator.arbitrate([promoBanner]).winner == promoBanner)
-        #expect(coordinator.arbitrate([forcedUpdate]).winner == forcedUpdate)
+        #expect(arbiter.arbitrate([forcedUpdate]).winner == forcedUpdate)
     }
 
     @Test func beginSessionResetsBudget() {
         let clock = Clock()
-        let (coordinator, _) = makeCoordinator(policies: .init(), clock: clock)
-        coordinator.beginSession()
-        coordinator.recordOutcome(.presented, for: launchPaywall)
-        #expect(coordinator.arbitrate([reviewPrompt]).winner == nil)
+        let (arbiter, _) = makeArbiter(policies: .init(), clock: clock)
+        arbiter.beginSession()
+        arbiter.recordPresented(launchPaywall)
+        #expect(arbiter.arbitrate([reviewPrompt]).winner == nil)
 
-        coordinator.beginSession()
-        #expect(coordinator.arbitrate([reviewPrompt]).winner == reviewPrompt)
+        arbiter.beginSession()
+        #expect(arbiter.arbitrate([reviewPrompt]).winner == reviewPrompt)
     }
 
     @Test func clearingSignalsDoesNotResetSessionBudget() {
         let clock = Clock()
-        let (coordinator, _) = makeCoordinator(policies: .init(), clock: clock)
-        coordinator.beginSession()
-        coordinator.registerSignal("critical-flow")
-        coordinator.recordOutcome(.presented, for: launchPaywall)
+        let (arbiter, _) = makeArbiter(policies: .init(), clock: clock)
+        arbiter.beginSession()
+        arbiter.registerSignal("critical-flow")
+        arbiter.recordPresented(launchPaywall)
 
-        coordinator.clearAllSignals()
+        arbiter.clearAllSignals()
 
-        #expect(!coordinator.isSignalActive("critical-flow"))
-        let result = coordinator.arbitrate([reviewPrompt])
+        #expect(!arbiter.isSignalActive("critical-flow"))
+        let result = arbiter.arbitrate([reviewPrompt])
         #expect(result.winner == nil)
         #expect(result.verdicts.first?.resolution == .rejected(.sessionBudgetExhausted))
     }
 
     @Test func configurableBudgetAllowsMultipleInterruptions() {
         let clock = Clock()
-        let (coordinator, _) = makeCoordinator(
+        let (arbiter, _) = makeArbiter(
             policies: .init(sessionInterruptionBudget: 2), clock: clock)
-        coordinator.beginSession()
-        coordinator.recordOutcome(.presented, for: launchPaywall)
-        #expect(coordinator.arbitrate([reviewPrompt]).winner == reviewPrompt)
-        coordinator.recordOutcome(.presented, for: reviewPrompt)
-        #expect(coordinator.arbitrate([launchPaywall]).winner == nil)
+        arbiter.beginSession()
+        arbiter.recordPresented(launchPaywall)
+        #expect(arbiter.arbitrate([reviewPrompt]).winner == reviewPrompt)
+        arbiter.recordPresented(reviewPrompt)
+        #expect(arbiter.arbitrate([launchPaywall]).winner == nil)
     }
 }
 
@@ -126,15 +131,15 @@ struct SessionBudgetTests {
 struct CooldownTests {
     @Test func surfaceCooldownBlocksUntilIntervalElapses() {
         let clock = Clock()
-        let (coordinator, _) = makeCoordinator(
+        let (arbiter, _) = makeArbiter(
             policies: .init(
                 surfaceCooldowns: [launchPaywall.cooldownKey: 24 * 3600],
                 sessionInterruptionBudget: 10),
             clock: clock)
-        coordinator.recordOutcome(.presented, for: launchPaywall)
+        arbiter.recordPresented(launchPaywall)
 
         clock.advance(23 * 3600)
-        let blocked = coordinator.arbitrate([launchPaywall])
+        let blocked = arbiter.arbitrate([launchPaywall])
         #expect(blocked.winner == nil)
         guard case .rejected(.surfaceCooldownActive(let remaining)) =
             blocked.verdicts[0].resolution
@@ -145,22 +150,22 @@ struct CooldownTests {
         #expect(abs(remaining - 3600) < 1)
 
         clock.advance(3600)  // exact boundary: elapsed == interval is allowed
-        #expect(coordinator.arbitrate([launchPaywall]).winner == launchPaywall)
+        #expect(arbiter.arbitrate([launchPaywall]).winner == launchPaywall)
     }
 
     @Test func categoryCooldownSpansDifferentSurfaces() {
         let clock = Clock()
-        let otherPromotion = SurfaceRequest(
-            id: "app.seasonal-offer", category: .promotion, tier: .interruptive)
-        let (coordinator, _) = makeCoordinator(
+        let otherPromotion = SurfaceProducer(
+            id: "app.seasonal-offer", category: .promotion, purpose: .monetization)
+        let (arbiter, _) = makeArbiter(
             policies: .init(
                 categoryCooldowns: [.promotion: 48 * 3600],
                 sessionInterruptionBudget: 10),
             clock: clock)
-        coordinator.recordOutcome(.presented, for: launchPaywall)
+        arbiter.recordPresented(launchPaywall)
 
         clock.advance(3600)
-        let blocked = coordinator.arbitrate([otherPromotion])
+        let blocked = arbiter.arbitrate([otherPromotion])
         #expect(blocked.winner == nil)
         guard case .rejected(.categoryCooldownActive) = blocked.verdicts[0].resolution
         else {
@@ -170,22 +175,22 @@ struct CooldownTests {
 
         // exact boundary: elapsed == interval is allowed
         clock.advance(48 * 3600 - 3600)
-        #expect(coordinator.arbitrate([otherPromotion]).winner == otherPromotion)
+        #expect(arbiter.arbitrate([otherPromotion]).winner == otherPromotion)
     }
 
     @Test func sharedCooldownKeySharesHistory() {
         let clock = Clock()
-        let placementA = SurfaceRequest(
-            id: "app.offer.launch", category: .promotion, tier: .interruptive,
+        let placementA = SurfaceProducer(
+            id: "app.offer.launch", category: .promotion, purpose: .monetization,
             cooldownKey: "app.offer")
-        let placementB = SurfaceRequest(
-            id: "app.offer.settings", category: .promotion, tier: .passive,
+        let placementB = SurfaceProducer(
+            id: "app.offer.resume", category: .promotion, purpose: .monetization,
             cooldownKey: "app.offer")
-        let (coordinator, _) = makeCoordinator(
+        let (arbiter, _) = makeArbiter(
             policies: .init(surfaceCooldowns: ["app.offer": 3600]), clock: clock)
-        coordinator.recordOutcome(.presented, for: placementA)
+        arbiter.recordPresented(placementA)
 
-        let blocked = coordinator.arbitrate([placementB])
+        let blocked = arbiter.arbitrate([placementB])
         guard case .rejected(.surfaceCooldownActive) = blocked.verdicts[0].resolution
         else {
             Issue.record("expected shared cooldown to block placementB")
@@ -198,17 +203,17 @@ struct CooldownTests {
 struct SuccessionTests {
     @Test func reviewBlockedRightAfterPromotion() {
         let clock = Clock()
-        let (coordinator, _) = makeCoordinator(
+        let (arbiter, _) = makeArbiter(
             policies: .init(
                 sessionInterruptionBudget: 10,
                 successionRules: [
                     .init(previous: .promotion, next: .review, window: 6 * 3600)
                 ]),
             clock: clock)
-        coordinator.recordOutcome(.presented, for: launchPaywall)
+        arbiter.recordPresented(launchPaywall)
 
         clock.advance(600)
-        let blocked = coordinator.arbitrate([reviewPrompt])
+        let blocked = arbiter.arbitrate([reviewPrompt])
         #expect(blocked.winner == nil)
         guard case .rejected(.successionBlocked(let previous, _)) =
             blocked.verdicts[0].resolution
@@ -220,36 +225,36 @@ struct SuccessionTests {
 
         // exact boundary: elapsed == window is allowed
         clock.advance(6 * 3600 - 600)
-        #expect(coordinator.arbitrate([reviewPrompt]).winner == reviewPrompt)
+        #expect(arbiter.arbitrate([reviewPrompt]).winner == reviewPrompt)
     }
 
     @Test func successionRuleIsDirectional() {
         let clock = Clock()
-        let (coordinator, _) = makeCoordinator(
+        let (arbiter, _) = makeArbiter(
             policies: .init(
                 sessionInterruptionBudget: 10,
                 successionRules: [
                     .init(previous: .promotion, next: .review, window: 6 * 3600)
                 ]),
             clock: clock)
-        coordinator.recordOutcome(.presented, for: reviewPrompt)
+        arbiter.recordPresented(reviewPrompt)
         clock.advance(600)
-        #expect(coordinator.arbitrate([launchPaywall]).winner == launchPaywall)
+        #expect(arbiter.arbitrate([launchPaywall]).winner == launchPaywall)
     }
 
     @Test func blockingTierIgnoresSuccessionRules() {
         let clock = Clock()
-        let blockingReview = SurfaceRequest(
-            id: "app.blocking-review", category: .review, tier: .blocking)
-        let (coordinator, _) = makeCoordinator(
+        let blockingReview = SurfaceProducer(
+            id: "app.blocking-review", category: .review, tier: .blocking, purpose: .engagement)
+        let (arbiter, _) = makeArbiter(
             policies: .init(
                 successionRules: [
                     .init(previous: .promotion, next: .review, window: 6 * 3600)
                 ]),
             clock: clock)
-        coordinator.recordOutcome(.presented, for: launchPaywall)
+        arbiter.recordPresented(launchPaywall)
         clock.advance(600)
-        #expect(coordinator.arbitrate([blockingReview]).winner == blockingReview)
+        #expect(arbiter.arbitrate([blockingReview]).winner == blockingReview)
     }
 }
 
@@ -264,10 +269,10 @@ struct SignalSuppressionTests {
         ])
 
     @Test func activeSignalSuppressesEverythingItCovers() {
-        let (coordinator, _) = makeCoordinator(policies: policies, clock: Clock())
-        coordinator.registerSignal("critical-flow")
+        let (arbiter, _) = makeArbiter(policies: policies, clock: Clock())
+        arbiter.registerSignal("critical-flow")
 
-        let result = coordinator.arbitrate([launchPaywall, promoBanner])
+        let result = arbiter.arbitrate([launchPaywall, reviewPrompt])
         #expect(result.winner == nil)
         for verdict in result.verdicts {
             #expect(
@@ -275,28 +280,28 @@ struct SignalSuppressionTests {
                     == .rejected(.suppressedBySignal(key: "critical-flow")))
         }
 
-        coordinator.clearSignal("critical-flow")
-        #expect(coordinator.arbitrate([launchPaywall]).winner == launchPaywall)
+        arbiter.clearSignal("critical-flow")
+        #expect(arbiter.arbitrate([launchPaywall]).winner == launchPaywall)
     }
 
     @Test func categoryScopedSignalOnlyHitsThatCategory() {
-        let (coordinator, _) = makeCoordinator(policies: policies, clock: Clock())
-        coordinator.registerSignal("purchase-failed")
+        let (arbiter, _) = makeArbiter(policies: policies, clock: Clock())
+        arbiter.registerSignal("purchase-failed")
 
-        #expect(coordinator.arbitrate([launchPaywall]).winner == launchPaywall)
-        let review = coordinator.arbitrate([reviewPrompt])
+        #expect(arbiter.arbitrate([launchPaywall]).winner == launchPaywall)
+        let review = arbiter.arbitrate([reviewPrompt])
         #expect(
             review.verdicts[0].resolution
                 == .rejected(.suppressedBySignal(key: "purchase-failed")))
     }
 
     @Test func blockingIsExemptUnlessRuleOptsIn() {
-        let (coordinator, _) = makeCoordinator(policies: policies, clock: Clock())
-        coordinator.registerSignal("critical-flow")
-        #expect(coordinator.arbitrate([forcedUpdate]).winner == forcedUpdate)
+        let (arbiter, _) = makeArbiter(policies: policies, clock: Clock())
+        arbiter.registerSignal("critical-flow")
+        #expect(arbiter.arbitrate([forcedUpdate]).winner == forcedUpdate)
 
-        coordinator.registerSignal("system-dialog")
-        let result = coordinator.arbitrate([forcedUpdate])
+        arbiter.registerSignal("system-dialog")
+        let result = arbiter.arbitrate([forcedUpdate])
         #expect(
             result.verdicts[0].resolution
                 == .rejected(.suppressedBySignal(key: "system-dialog")))
@@ -304,59 +309,48 @@ struct SignalSuppressionTests {
 
     @Test func expiredSignalNoLongerSuppresses() {
         let clock = Clock()
-        let (coordinator, _) = makeCoordinator(policies: policies, clock: clock)
-        coordinator.registerSignal("critical-flow", expiresAfter: 300)
+        let (arbiter, _) = makeArbiter(policies: policies, clock: clock)
+        arbiter.registerSignal("critical-flow", expiresAfter: 300)
 
-        #expect(coordinator.arbitrate([launchPaywall]).winner == nil)
+        #expect(arbiter.arbitrate([launchPaywall]).winner == nil)
         clock.advance(299)
-        #expect(coordinator.arbitrate([launchPaywall]).winner == nil)
+        #expect(arbiter.arbitrate([launchPaywall]).winner == nil)
         // exact boundary: a signal is expired the moment now == expiry
         clock.advance(1)
-        #expect(coordinator.arbitrate([launchPaywall]).winner == launchPaywall)
+        #expect(arbiter.arbitrate([launchPaywall]).winner == launchPaywall)
     }
 
     @Test func clearAllSignalsDropsEveryKeyIncludingUnexpired() {
         let clock = Clock()
-        let (coordinator, _) = makeCoordinator(policies: policies, clock: clock)
-        coordinator.registerSignal("critical-flow")
-        coordinator.registerSignal("purchase-failed", expiresAfter: 300)
+        let (arbiter, _) = makeArbiter(policies: policies, clock: clock)
+        arbiter.registerSignal("critical-flow")
+        arbiter.registerSignal("purchase-failed", expiresAfter: 300)
 
-        coordinator.clearAllSignals()
+        arbiter.clearAllSignals()
 
-        #expect(!coordinator.isSignalActive("critical-flow"))
-        #expect(!coordinator.isSignalActive("purchase-failed"))
-        #expect(coordinator.arbitrate([launchPaywall]).winner == launchPaywall)
-        #expect(coordinator.arbitrate([reviewPrompt]).winner == reviewPrompt)
+        #expect(!arbiter.isSignalActive("critical-flow"))
+        #expect(!arbiter.isSignalActive("purchase-failed"))
+        #expect(arbiter.arbitrate([launchPaywall]).winner == launchPaywall)
+        #expect(arbiter.arbitrate([reviewPrompt]).winner == reviewPrompt)
     }
 }
 
 @MainActor
-struct OutcomeRecordingTests {
+struct PresentationRecordingTests {
     @Test func arbitrationAloneStampsNothing() {
         let clock = Clock()
-        let (coordinator, store) = makeCoordinator(
+        let (arbiter, store) = makeArbiter(
             policies: .init(surfaceCooldowns: [launchPaywall.cooldownKey: 3600]),
             clock: clock)
-        _ = coordinator.arbitrate([launchPaywall])
+        _ = arbiter.arbitrate([launchPaywall])
         #expect(store.lastPresentation(cooldownKey: launchPaywall.cooldownKey) == nil)
-        #expect(coordinator.arbitrate([launchPaywall]).winner == launchPaywall)
-    }
-
-    @Test func skippedAndFailedLeaveStateUntouched() {
-        let clock = Clock()
-        let (coordinator, store) = makeCoordinator(
-            policies: .init(surfaceCooldowns: [launchPaywall.cooldownKey: 3600]),
-            clock: clock)
-        coordinator.recordOutcome(.skipped, for: launchPaywall)
-        coordinator.recordOutcome(.failed, for: launchPaywall)
-        #expect(store.lastPresentation(cooldownKey: launchPaywall.cooldownKey) == nil)
-        #expect(coordinator.arbitrate([launchPaywall]).winner == launchPaywall)
+        #expect(arbiter.arbitrate([launchPaywall]).winner == launchPaywall)
     }
 
     @Test func presentedStampsBothSurfaceAndCategory() {
         let clock = Clock()
-        let (coordinator, store) = makeCoordinator(policies: .init(), clock: clock)
-        coordinator.recordOutcome(.presented, for: launchPaywall)
+        let (arbiter, store) = makeArbiter(policies: .init(), clock: clock)
+        arbiter.recordPresented(launchPaywall)
         #expect(
             store.lastPresentation(cooldownKey: launchPaywall.cooldownKey)
                 == clock.current)
