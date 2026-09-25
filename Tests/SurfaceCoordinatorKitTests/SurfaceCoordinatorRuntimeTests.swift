@@ -142,6 +142,18 @@ struct PendingCandidateTests {
         #expect(harness.coordinator.requestPermit(scene: harness.scene) == .unavailable)
     }
 
+    /// A producer re-checking after it submitted is both pending and ready;
+    /// withdrawing must clear both, or the stale candidate still wins.
+    @Test func withdrawClearsCandidateThatIsAlsoPending() {
+        let harness = Harness()
+        harness.coordinator.submit(.whatsNew)
+        harness.coordinator.markPending(.whatsNew)
+        harness.coordinator.withdraw(.whatsNew)
+
+        #expect(!harness.coordinator.isSubmitted(.whatsNew))
+        #expect(harness.coordinator.requestPermit(scene: harness.scene) == .unavailable)
+    }
+
     @Test func withdrawRevokesUnlandedPermitButKeepsLandedOne() {
         let harness = Harness()
         harness.coordinator.submit(.whatsNew)

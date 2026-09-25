@@ -13,7 +13,8 @@ extension View {
     /// - records `.presented` only after the content reached the window, once
     ///   per permit, and withdraws a presentation that did not land in time;
     /// - releases the permit only after a landed presentation finished
-    ///   dismissing, or when its window closes.
+    ///   dismissing; a scene that leaves the foreground before landing gives
+    ///   it back.
     ///
     /// The host never renders `.unobservable` producers; those go through
     /// `SurfaceCoordinator.performUnobservable`.
@@ -88,13 +89,13 @@ private struct SurfaceHostModifier<SurfaceContent: View>: ViewModifier {
                 await watchLanding()
             }
             .onDisappear {
-                // The window closed: release only this window's permit.
-                guard let permit = ownPermit else { return }
-                if coordinator.isLanded(permit) {
-                    coordinator.completeDismissal(permit)
-                } else {
-                    coordinator.abandon(permit)
-                }
+                // A cover over the host, including the host's own, also ends
+                // up here while the scene stays active; dismissal is reported
+                // by the content itself. Only a window that left the
+                // foreground gives back a permit that never landed.
+                guard let permit = ownPermit, !isSceneActive, !coordinator.isLanded(permit)
+                else { return }
+                coordinator.abandon(permit)
             }
     }
 

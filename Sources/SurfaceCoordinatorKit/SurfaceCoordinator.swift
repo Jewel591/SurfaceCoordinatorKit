@@ -227,7 +227,9 @@ public final class SurfaceCoordinator {
     /// permit if the content has not reached the screen yet; a landed
     /// presentation stays until the user dismisses it.
     public func withdraw(_ id: SurfaceProducerID) {
-        let hadCandidate = pending.removeValue(forKey: id) != nil || ready.remove(id) != nil
+        let wasPending = pending.removeValue(forKey: id) != nil
+        let wasReady = ready.remove(id) != nil
+        let hadCandidate = wasPending || wasReady
         failures.removeValue(forKey: id)
         if let current = active, current.permit.producer.id == id, !current.landed {
             active = nil
