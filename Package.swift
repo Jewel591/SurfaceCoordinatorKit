@@ -11,12 +11,21 @@ let package = Package(
     ],
     products: [
         .library(name: "SurfaceCoordinatorKit", targets: ["SurfaceCoordinatorKit"]),
+        .library(name: "SurfaceCoordinatorKitUI", targets: ["SurfaceCoordinatorKitUI"]),
     ],
     targets: [
         .target(name: "SurfaceCoordinatorKit"),
+        .target(
+            name: "SurfaceCoordinatorKitUI",
+            dependencies: ["SurfaceCoordinatorKit"]
+        ),
         .testTarget(
             name: "SurfaceCoordinatorKitTests",
             dependencies: ["SurfaceCoordinatorKit"]
+        ),
+        .testTarget(
+            name: "SurfaceCoordinatorKitUITests",
+            dependencies: ["SurfaceCoordinatorKitUI"]
         ),
     ],
     swiftLanguageModes: [.v6]

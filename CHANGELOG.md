@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.0.0 - Unreleased
+
+### Breaking
+
+- `SurfaceCoordinator` is now the canonical process runtime (`SurfaceCoordinator.shared`, `@Observable`). Hosts register producers and submit candidates instead of calling `arbitrate` and `recordOutcome`, which are no longer public.
+- `SurfaceRequest` is replaced by `SurfaceProducer`. Order inside a tier comes from the new `SurfacePurpose` and then the producer id, never from host listing order.
+- `SurfaceProducer` refuses the `.passive` tier: persistent passive UI does not compete for the permit.
+
+### Added
+
+- Producer registry (idempotent), pending candidates with a bounded wait, `submit` / `withdraw`, a single presentation permit with generations, and counted occupancy owners.
+- `SurfaceCoordinatorKitUI` product: the `.surfaceHost` SwiftUI adapter gates on the window's scene, owns the sheet / cover, records `.presented` only after the content reached the window, withdraws and retries presentations that did not land, and releases the permit after dismissal or window close.
+- `performUnobservable` for StoreKit-style requests, recorded as `.attempted` without cooldown or budget.
+- `SurfaceEvent` lifecycle events, `hasActivity`, `isPresenting`, and standard producer ids for Kit-owned surfaces.
+
 ## 0.2.0 - 2026-08-19
 
 ### Added

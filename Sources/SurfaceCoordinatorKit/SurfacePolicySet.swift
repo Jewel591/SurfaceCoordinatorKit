@@ -50,10 +50,10 @@ public struct SurfaceSuppressionRule: Sendable, Equatable {
         self.appliesToBlocking = appliesToBlocking
     }
 
-    func applies(to request: SurfaceRequest) -> Bool {
-        if request.tier == .blocking && !appliesToBlocking { return false }
+    func applies(to producer: SurfaceProducer) -> Bool {
+        if producer.tier == .blocking && !appliesToBlocking { return false }
         guard let categories else { return true }
-        return categories.contains(request.category)
+        return categories.contains(producer.category)
     }
 }
 
